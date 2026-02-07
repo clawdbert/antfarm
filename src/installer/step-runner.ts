@@ -102,15 +102,32 @@ export async function completeStep(params: {
     run.stepResults.push(result);
 
     // Extract context from output (look for PLAN:, ACCEPTANCE:, SUMMARY:, etc.)
-    // Match KEY: followed by content until the next KEY: at start of line or end of string
-    const contextMatches = params.output.matchAll(/^([A-Z]+):\s*([\s\S]*?)(?=\n[A-Z]+:|$)/gm);
-    for (const match of contextMatches) {
-      const key = match[1].toLowerCase();
-      const value = match[2].trim();
-      if (value) {
-        run.context[key] = value;
+    // Parse sections by splitting on lines that start with ALL-CAPS-KEY:
+    const lines = params.output.split("\n");
+    let currentKey: string | null = null;
+    let currentValue: string[] = [];
+    
+    const saveSection = () => {
+      if (currentKey && currentValue.length > 0) {
+        run.context[currentKey] = currentValue.join("\n").trim();
+      }
+    };
+    
+    for (const line of lines) {
+      const keyMatch = line.match(/^([A-Z][A-Z_]+):\s*(.*)/);
+      if (keyMatch) {
+        // Save previous section
+        saveSection();
+        // Start new section
+        currentKey = keyMatch[1].toLowerCase();
+        currentValue = keyMatch[2] ? [keyMatch[2]] : [];
+      } else if (currentKey) {
+        // Continue current section
+        currentValue.push(line);
       }
     }
+    // Save final section
+    saveSection();
 
     run.currentStepIndex++;
     run.currentStepId = workflow.steps[run.currentStepIndex]?.id;

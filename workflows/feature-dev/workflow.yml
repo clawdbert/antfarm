@@ -97,8 +97,12 @@ steps:
     agent: developer
     input: |
       Implement the feature described below. Follow the acceptance criteria.
-      {{context.plan}}
-      {{context.acceptance}}
+      
+      PLAN:
+      {{plan}}
+      
+      ACCEPTANCE:
+      {{acceptance}}
       Reply with:
       STATUS: done
       SUMMARY: ...
@@ -109,8 +113,12 @@ steps:
     agent: verifier
     input: |
       Verify the implementation against acceptance criteria.
-      {{context.plan}}
-      {{context.acceptance}}
+      
+      PLAN:
+      {{plan}}
+      
+      ACCEPTANCE:
+      {{acceptance}}
       Reply with:
       STATUS: done (if it meets all criteria)
       or
