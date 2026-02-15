@@ -135,6 +135,10 @@ export async function createAgentCronJob(job: {
 
     args.push("--session", job.sessionTarget === "isolated" ? "isolated" : "main");
 
+    if (job.agentId) {
+      args.push("--agent", job.agentId);
+    }
+
     if (job.payload?.message) {
       args.push("--message", job.payload.message);
     }
@@ -145,6 +149,10 @@ export async function createAgentCronJob(job: {
 
     if (job.payload?.model) {
       args.push("--model", job.payload.model);
+    }
+
+    if (job.delivery?.mode === "none") {
+      args.push("--delivery", "none");
     }
 
     if (!job.enabled) {

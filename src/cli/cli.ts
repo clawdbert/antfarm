@@ -98,6 +98,7 @@ function printUsage() {
       "antfarm workflow runs                List all workflow runs",
       "antfarm workflow resume <run-id>     Resume a failed run from where it left off",
       "antfarm workflow stop <run-id>        Stop/cancel a running workflow",
+      "antfarm workflow ensure-crons <name>  Recreate agent crons for a workflow",
       "",
       "antfarm dashboard [start] [--port N]   Start dashboard daemon (default: 3333)",
       "antfarm dashboard stop                  Stop dashboard daemon",
@@ -614,6 +615,19 @@ async function main() {
     }
 
     console.log(`Resumed run ${run.id.slice(0, 8)} from step "${failedStep.step_id}"`);
+    return;
+  }
+
+  if (action === "ensure-crons") {
+    const { loadWorkflowSpec } = await import("../installer/workflow-spec.js");
+    const { resolveWorkflowDir } = await import("../installer/paths.js");
+    const { setupAgentCrons, removeAgentCrons } = await import("../installer/agent-cron.js");
+    const workflowDir = resolveWorkflowDir(target);
+    const workflow = await loadWorkflowSpec(workflowDir);
+    // Force recreate: remove existing then create fresh
+    await removeAgentCrons(target);
+    await setupAgentCrons(workflow);
+    console.log(`Recreated agent crons for workflow "${target}".`);
     return;
   }
 
