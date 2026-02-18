@@ -56,3 +56,16 @@ If `antfarm` fails with a `node:sqlite` error, your `node` binary may be Bun's w
 - `antfarm uninstall` removes everything: all workflows, agents, cron jobs, and DB state.
 
 If something fails, report the exact error and ask the user to resolve it before continuing.
+
+## Code Search with qmd
+
+Before diving into code or making changes, search the indexed codebase using `qmd`:
+
+```bash
+qmd search "your query" -c antfarm    # Fast keyword search
+qmd vsearch "your query" -c antfarm   # Semantic search
+qmd query "your query" -c antfarm     # Hybrid + reranking (best quality)
+qmd get "antfarm/path/to/file.md"     # Get full document
+```
+
+Use this to understand existing patterns, find related code, and avoid duplicating work.
