@@ -32,6 +32,11 @@ export type PollingConfig = {
   timeoutSeconds?: number;
 };
 
+export type CronConfig = {
+  interval_ms?: number;
+  abandoned_margin_ms?: number;
+};
+
 export type WorkflowStepFailure = {
   retry_step?: string;
   max_retries?: number;
@@ -77,6 +82,7 @@ export type WorkflowSpec = {
   name?: string;
   version?: number;
   polling?: PollingConfig;
+  cron?: CronConfig;
   agents: WorkflowAgent[];
   steps: WorkflowStep[];
   context?: Record<string, string>;
