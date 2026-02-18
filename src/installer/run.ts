@@ -5,6 +5,7 @@ import { getDb, nextRunNumber } from "../db.js";
 import { logger } from "../lib/logger.js";
 import { ensureWorkflowCrons } from "./agent-cron.js";
 import { emitEvent } from "./events.js";
+import { DEFAULT_AGENT_TIMEOUT_SECONDS, DEFAULT_ABANDONED_MARGIN_MS } from "./constants.js";
 
 export async function runWorkflow(params: {
   workflowId: string;
@@ -26,13 +27,20 @@ export async function runWorkflow(params: {
   db.exec("BEGIN");
   try {
     const notifyUrl = params.notifyUrl ?? workflow.notifications?.url ?? null;
+    const abandonedMarginMs = workflow.cron?.abandoned_margin_ms ?? DEFAULT_ABANDONED_MARGIN_MS;
     const insertRun = db.prepare(
-      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, notify_url, created_at, updated_at) VALUES (?, ?, ?, ?, 'running', ?, ?, ?, ?)"
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, notify_url, abandoned_margin_ms, created_at, updated_at) VALUES (?, ?, ?, ?, 'running', ?, ?, ?, ?, ?)"
     );
-    insertRun.run(runId, runNumber, workflow.id, params.taskTitle, JSON.stringify(initialContext), notifyUrl, now, now);
+    insertRun.run(runId, runNumber, workflow.id, params.taskTitle, JSON.stringify(initialContext), notifyUrl, abandonedMarginMs, now, now);
+
+    // Build agent timeout map for per-step abandoned threshold
+    const agentTimeouts = new Map<string, number>();
+    for (const agent of workflow.agents) {
+      agentTimeouts.set(agent.id, agent.timeoutSeconds ?? DEFAULT_AGENT_TIMEOUT_SECONDS);
+    }
 
     const insertStep = db.prepare(
-      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, max_retries, type, loop_config, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, max_retries, type, loop_config, timeout_seconds, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
 
     for (let i = 0; i < workflow.steps.length; i++) {
@@ -43,7 +51,8 @@ export async function runWorkflow(params: {
       const maxRetries = step.max_retries ?? step.on_fail?.max_retries ?? 2;
       const stepType = step.type ?? "single";
       const loopConfig = step.loop ? JSON.stringify(step.loop) : null;
-      insertStep.run(stepUuid, runId, step.id, agentId, i, step.input, step.expects, status, maxRetries, stepType, loopConfig, now, now);
+      const timeoutSeconds = agentTimeouts.get(step.agent) ?? DEFAULT_AGENT_TIMEOUT_SECONDS;
+      insertStep.run(stepUuid, runId, step.id, agentId, i, step.input, step.expects, status, maxRetries, stepType, loopConfig, timeoutSeconds, now, now);
     }
 
     db.exec("COMMIT");

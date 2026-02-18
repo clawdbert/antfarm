@@ -3,11 +3,13 @@
  */
 import { getDb } from "../db.js";
 import { getMaxRoleTimeoutSeconds } from "../installer/install.js";
+import { MAX_AUTO_RESUMES } from "../installer/constants.js";
 
 export type MedicSeverity = "info" | "warning" | "critical";
 export type MedicActionType =
   | "reset_step"
   | "fail_run"
+  | "resume_run"
   | "teardown_crons"
   | "none";
 
@@ -154,6 +156,49 @@ export function checkDeadRuns(): MedicFinding[] {
   return findings;
 }
 
+// ── Check: Failed Runs (auto-resume candidates) ────────────────────
+
+/**
+ * Find runs that failed recently and are eligible for auto-resume.
+ * Conditions:
+ * - status = 'failed'
+ * - resume_count < MAX_AUTO_RESUMES
+ * - failed > 2 minutes ago (cooldown — avoids racing with teardown)
+ * - failed < 1 hour ago (recency — old failures need human attention)
+ */
+export function checkFailedRuns(): MedicFinding[] {
+  const db = getDb();
+  const findings: MedicFinding[] = [];
+
+  const failed = db.prepare(`
+    SELECT id, workflow_id, task, updated_at, COALESCE(resume_count, 0) as resume_count
+    FROM runs
+    WHERE status = 'failed'
+      AND COALESCE(resume_count, 0) < ?
+      AND (julianday('now') - julianday(updated_at)) * 86400 > 120
+      AND (julianday('now') - julianday(updated_at)) * 86400 < 3600
+  `).all(MAX_AUTO_RESUMES) as Array<{
+    id: string; workflow_id: string; task: string;
+    updated_at: string; resume_count: number;
+  }>;
+
+  for (const run of failed) {
+    const ageMin = Math.round(
+      (Date.now() - new Date(run.updated_at).getTime()) / 60000
+    );
+    findings.push({
+      check: "failed_runs",
+      severity: "warning",
+      message: `Run ${run.id.slice(0, 8)} (${run.workflow_id}: "${run.task.slice(0, 60)}") failed ${ageMin}min ago — auto-resume ${run.resume_count + 1}/${MAX_AUTO_RESUMES}`,
+      action: "resume_run",
+      runId: run.id,
+      remediated: false,
+    });
+  }
+
+  return findings;
+}
+
 // ── Check: Orphaned Crons ───────────────────────────────────────────
 
 /**
@@ -206,5 +251,6 @@ export function runSyncChecks(): MedicFinding[] {
     ...checkStuckSteps(),
     ...checkStalledRuns(),
     ...checkDeadRuns(),
+    ...checkFailedRuns(),
   ];
 }

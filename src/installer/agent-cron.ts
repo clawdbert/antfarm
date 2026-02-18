@@ -3,8 +3,7 @@ import type { WorkflowSpec } from "./types.js";
 import { resolveAntfarmCli } from "./paths.js";
 import { getDb } from "../db.js";
 
-const DEFAULT_EVERY_MS = 300_000; // 5 minutes
-const DEFAULT_AGENT_TIMEOUT_SECONDS = 30 * 60; // 30 minutes
+import { DEFAULT_EVERY_MS, DEFAULT_AGENT_TIMEOUT_SECONDS } from "./constants.js";
 
 function buildAgentPrompt(workflowId: string, agentId: string): string {
   const fullAgentId = `${workflowId}_${agentId}`;
@@ -125,7 +124,7 @@ Reply with a short summary of what you spawned.`;
 export async function setupAgentCrons(workflow: WorkflowSpec): Promise<void> {
   const agents = workflow.agents;
   // Allow per-workflow cron interval via cron.interval_ms in workflow.yml
-  const everyMs = (workflow as any).cron?.interval_ms ?? DEFAULT_EVERY_MS;
+  const everyMs = workflow.cron?.interval_ms ?? DEFAULT_EVERY_MS;
 
   // Resolve polling model: per-agent > workflow-level > default
   const workflowPollingModel = workflow.polling?.model ?? DEFAULT_POLLING_MODEL;

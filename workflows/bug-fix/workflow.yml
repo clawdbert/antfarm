@@ -12,6 +12,10 @@ polling:
   model: default
   timeoutSeconds: 120
 
+cron:
+  interval_ms: 120000          # 2 min polling — faster handoff between steps
+  abandoned_margin_ms: 300000  # 5 min buffer beyond agent timeout
+
 agents:
   - id: triager
     name: Triager
@@ -50,6 +54,7 @@ agents:
     name: Fixer
     role: coding
     description: Implements the fix and writes regression tests.
+    timeoutSeconds: 3600
     workspace:
       baseDir: agents/fixer
       files:

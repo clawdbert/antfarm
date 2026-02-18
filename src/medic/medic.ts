@@ -8,6 +8,7 @@ import { getDb } from "../db.js";
 import { emitEvent, type EventType } from "../installer/events.js";
 import { teardownWorkflowCronsIfIdle } from "../installer/agent-cron.js";
 import { listCronJobs } from "../installer/gateway-api.js";
+import { resumeRun } from "../installer/resume.js";
 import {
   runSyncChecks,
   checkOrphanedCrons,
@@ -105,6 +106,16 @@ async function remediate(finding: MedicFinding): Promise<boolean> {
       // Try to clean up crons
       try { await teardownWorkflowCronsIfIdle(run.workflow_id); } catch {}
       return true;
+    }
+
+    case "resume_run": {
+      if (!finding.runId) return false;
+      try {
+        const result = await resumeRun(finding.runId);
+        return result.ok;
+      } catch {
+        return false;
+      }
     }
 
     case "teardown_crons": {

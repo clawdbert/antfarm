@@ -85,12 +85,21 @@ function migrate(db: DatabaseSync): void {
   if (!colNames.has("abandoned_count")) {
     db.exec("ALTER TABLE steps ADD COLUMN abandoned_count INTEGER DEFAULT 0");
   }
+  if (!colNames.has("timeout_seconds")) {
+    db.exec("ALTER TABLE steps ADD COLUMN timeout_seconds INTEGER");
+  }
 
   // Add columns to runs table for backwards compat
   const runCols = db.prepare("PRAGMA table_info(runs)").all() as Array<{ name: string }>;
   const runColNames = new Set(runCols.map((c) => c.name));
   if (!runColNames.has("notify_url")) {
     db.exec("ALTER TABLE runs ADD COLUMN notify_url TEXT");
+  }
+  if (!runColNames.has("abandoned_margin_ms")) {
+    db.exec("ALTER TABLE runs ADD COLUMN abandoned_margin_ms INTEGER");
+  }
+  if (!runColNames.has("resume_count")) {
+    db.exec("ALTER TABLE runs ADD COLUMN resume_count INTEGER DEFAULT 0");
   }
   if (!runColNames.has("run_number")) {
     db.exec("ALTER TABLE runs ADD COLUMN run_number INTEGER");

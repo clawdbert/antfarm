@@ -8,7 +8,7 @@ import { execSync, execFileSync } from "node:child_process";
 import { teardownWorkflowCronsIfIdle } from "./agent-cron.js";
 import { emitEvent } from "./events.js";
 import { logger } from "../lib/logger.js";
-import { getMaxRoleTimeoutSeconds } from "./install.js";
+import { DEFAULT_AGENT_TIMEOUT_SECONDS, DEFAULT_ABANDONED_MARGIN_MS } from "./constants.js";
 import { isFrontendChange } from "../lib/frontend-detect.js";
 
 /**
@@ -240,23 +240,32 @@ function parseAndInsertStories(output: string, runId: string): void {
 
 // ── Abandoned Step Cleanup ──────────────────────────────────────────
 
-const ABANDONED_THRESHOLD_MS = (getMaxRoleTimeoutSeconds() + 5 * 60) * 1000; // max role timeout + 5 min buffer
 const MAX_ABANDON_RESETS = 5; // abandoned steps get more chances than explicit failures
 
 /**
  * Find steps that have been "running" for too long and reset them to pending.
  * This catches cases where an agent claimed a step but never completed/failed it.
+ *
+ * Per-step threshold: agent timeout_seconds (stored at run creation) + run-level abandoned_margin_ms.
+ * Falls back to DEFAULT_AGENT_TIMEOUT_SECONDS / DEFAULT_ABANDONED_MARGIN_MS for pre-migration rows.
+ *
  * Exported so it can be called from medic/health-check crons independently of claimStep.
  */
 export function cleanupAbandonedSteps(): void {
   const db = getDb();
-  // Use numeric comparison so mixed timestamp formats don't break ordering.
-  const thresholdMs = ABANDONED_THRESHOLD_MS;
 
-  // Find running steps that haven't been updated recently
-  const abandonedSteps = db.prepare(
-    "SELECT id, step_id, run_id, retry_count, max_retries, type, current_story_id, loop_config, abandoned_count FROM steps WHERE status = 'running' AND (julianday('now') - julianday(updated_at)) * 86400000 > ?"
-  ).all(thresholdMs) as { id: string; step_id: string; run_id: string; retry_count: number; max_retries: number; type: string; current_story_id: string | null; loop_config: string | null; abandoned_count: number }[];
+  // Find running steps that have exceeded their per-step abandoned threshold.
+  // Threshold = agent timeout (from step row) + margin (from run's workflow config).
+  // COALESCE handles rows created before the timeout_seconds/abandoned_margin_ms migrations.
+  const abandonedSteps = db.prepare(`
+    SELECT s.id, s.step_id, s.run_id, s.retry_count, s.max_retries, s.type,
+           s.current_story_id, s.loop_config, s.abandoned_count
+    FROM steps s
+    JOIN runs r ON r.id = s.run_id
+    WHERE s.status = 'running'
+      AND (julianday('now') - julianday(s.updated_at)) * 86400000 >
+          (COALESCE(s.timeout_seconds, ?) * 1000 + COALESCE(r.abandoned_margin_ms, ?))
+  `).all(DEFAULT_AGENT_TIMEOUT_SECONDS, DEFAULT_ABANDONED_MARGIN_MS) as { id: string; step_id: string; run_id: string; retry_count: number; max_retries: number; type: string; current_story_id: string | null; loop_config: string | null; abandoned_count: number }[];
 
   for (const step of abandonedSteps) {
     if (step.type === "loop" && !step.current_story_id && step.loop_config) {
@@ -328,9 +337,18 @@ export function cleanupAbandonedSteps(): void {
 
   // Reset running stories that are abandoned — don't touch "done" stories
   // Don't increment retry_count for abandonment; only explicit failStep() counts against retries
-  const abandonedStories = db.prepare(
-    "SELECT id, retry_count, max_retries, run_id FROM stories WHERE status = 'running' AND (julianday('now') - julianday(updated_at)) * 86400000 > ?"
-  ).all(thresholdMs) as { id: string; retry_count: number; max_retries: number; run_id: string }[];
+  // Use per-step threshold via the loop step's timeout_seconds
+  const abandonedStories = db.prepare(`
+    SELECT st.id, st.retry_count, st.max_retries, st.run_id
+    FROM stories st
+    JOIN runs r ON r.id = st.run_id
+    WHERE st.status = 'running'
+      AND (julianday('now') - julianday(st.updated_at)) * 86400000 >
+          (COALESCE(
+             (SELECT s2.timeout_seconds FROM steps s2 WHERE s2.run_id = r.id AND s2.type = 'loop' LIMIT 1),
+             ?
+           ) * 1000 + COALESCE(r.abandoned_margin_ms, ?))
+  `).all(DEFAULT_AGENT_TIMEOUT_SECONDS, DEFAULT_ABANDONED_MARGIN_MS) as { id: string; retry_count: number; max_retries: number; run_id: string }[];
 
   for (const story of abandonedStories) {
     // Simply reset to pending without incrementing retry_count
@@ -635,9 +653,9 @@ export function completeStep(stepId: string, output: string): { advanced: boolea
         db.prepare(
           "UPDATE steps SET status = 'pending', updated_at = datetime('now') WHERE id = ?"
         ).run(verifyStep.id);
-        // Loop step stays 'running'
+        // Loop step waits for verification (not 'running' — avoids false abandoned detection)
         db.prepare(
-          "UPDATE steps SET status = 'running', updated_at = datetime('now') WHERE id = ?"
+          "UPDATE steps SET status = 'waiting', updated_at = datetime('now') WHERE id = ?"
         ).run(step.id);
         return { advanced: false, runCompleted: false };
       }
