@@ -40,6 +40,7 @@ agents:
     name: Developer
     role: coding
     description: Implements features, writes tests, creates PRs.
+    timeoutSeconds: 3600
     workspace:
       baseDir: agents/developer
       files:
@@ -51,6 +52,7 @@ agents:
     name: Verifier
     role: verification
     description: Quick sanity check - did developer actually do the work?
+    timeoutSeconds: 1800
     workspace:
       baseDir: agents/verifier
       skills:
@@ -64,6 +66,7 @@ agents:
     name: Tester
     role: testing
     description: Integration and E2E testing after all stories are implemented.
+    timeoutSeconds: 3600
     workspace:
       baseDir: agents/tester
       files:
